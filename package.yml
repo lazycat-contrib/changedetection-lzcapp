@@ -1,0 +1,18 @@
+package: community.lazycat.app.changedetection
+version: 0.60.10
+name: changedetection.io
+description: Website content change monitoring with persistent watch history; packaged without an external browser renderer.
+min_os_version: "1.6.0"
+homepage: https://github.com/dgtlmoon/changedetection.io
+author: dgtlmoon
+license: Apache-2.0
+permissions:
+  required:
+    - net.internet
+locales:
+  zh:
+    name: changedetection.io
+    description: 网页内容变更监控与历史对比，支持通知配置；本包不附带外部浏览器渲染服务。
+  en:
+    name: changedetection.io
+    description: Website content change monitoring with persistent watch history; packaged without an external browser renderer.

@@ -1,0 +1,45 @@
+application:
+  subdomain: changedetection
+  multi_instance: false
+  upstreams:
+    - location: /
+      backend: http://changedetection:5000/
+  injects:
+    - id: login-autofill
+      on: browser
+      when:
+        - /login
+      do:
+        - src: builtin://simple-inject-password
+          params:
+            user: defaultuser@changedetection.io
+            password: |-
+              {{ .U.login_secret | replace "\r" "" | replace "\n" "\n              " }}
+            userSelector: '#email'
+            passwordSelector: '#password'
+            autoSubmit: false
+services:
+  changedetection:
+    # upstream: ghcr.io/dgtlmoon/changedetection.io:0.60.10
+    image: ghcr.1ms.run/dgtlmoon/changedetection.io:0.60.10
+    run_as: "1000:1000"
+    command: python /lzcapp/pkg/content/start.py
+    environment:
+      - PORT=5000
+      - BASE_URL=https://{{ .S.AppDomain }}
+      - USE_X_SETTINGS=1
+      - DISABLE_VERSION_CHECK=true
+      - LLM_FEATURES_DISABLED=true
+      - CD_AUTH_SALT={{ stable_secret "changedetection-native-auth-salt" }}
+      - |-
+        CD_LOGIN_SECRET={{ .U.login_secret | replace "\r" "" | replace "\n" "\n        " }}
+    binds:
+      - /lzcapp/var/data:/datastore
+usage: |
+  网页变更监控与历史对比。本包不附带Playwright/Chromium服务；普通HTTP抓取之外的动态渲染、视觉选区或浏览器步骤可能不可用。
+  保留懒猫入口认证，原生/login仅需要部署参数的共享密码，自动填充但不自动提交。请求中固定隐藏用户字段由上游决定，并非个人邮箱。
+  启动时按上游格式生成PBKDF2-SHA256摘要（32字节盐、100000轮），不记录明文或摘要到日志。部署参数管理密码，网页修改不覆盖环境配置；已有会话按上游策略处理。
+  授权成员共用监控配置、抓取历史和通知配置，仅授可信成员。数据在/lzcapp/var/data，卸载前备份；使用UID1000及属主映射，需要系统1.6.0。
+  默认禁用版本检查遥测及LLM功能，未配置付费服务或外部模型凭据。仅启一个应用容器，无外部数据库。
+  保留原入口，不新增smoke、文件选择器拦截或匿名公共路径。
+  未验证实机启动、登录填充、网页抓取、变更比对、通知或重启持久化。

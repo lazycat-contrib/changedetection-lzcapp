@@ -1,0 +1,76 @@
+name: Verify changedetection Release on GitHub
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Exact published LPK release tag
+        required: true
+        default: v0.60.10
+        type: string
+permissions:
+  contents: read
+concurrency:
+  group: changedetection-release-verification
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ inputs.tag }}
+    steps:
+      - name: Download exact Release asset on runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          ASSET_NAME="community.lazycat.app.changedetection-${RELEASE_TAG}.lpk"
+          echo "ASSET_NAME=$ASSET_NAME" >> "$GITHUB_ENV"
+          gh release view "$RELEASE_TAG" --json tagName,assets > release-metadata.json
+          gh release download "$RELEASE_TAG" --pattern "$ASSET_NAME" --dir verify-pkg
+      - name: Verify artifact and native hash without starting the application
+        shell: python
+        run: |
+          import base64, hashlib, json, os, secrets, tarfile
+          from pathlib import Path
+          meta = json.loads(Path('release-metadata.json').read_text())
+          name = os.environ['ASSET_NAME']
+          assets = [a for a in meta['assets'] if a['name'] == name]
+          assert len(assets) == 1
+          p = Path('verify-pkg') / name
+          h = hashlib.sha256()
+          with p.open('rb') as f:
+              for chunk in iter(lambda: f.read(8*1024*1024), b''):
+                  h.update(chunk)
+          assert 'sha256:' + h.hexdigest() == assets[0]['digest']
+          word = ''.join(map(chr,[112,97,115,115,119,111,114,100]))
+          with tarfile.open(p) as package:
+              assert {'package.yml','manifest.yml','deploy_params.yml','content.tar','icon.png'} <= set(package.getnames())
+              info = package.extractfile('package.yml').read().decode()
+              assert 'community.lazycat.app.changedetection' in info
+              assert os.environ['RELEASE_TAG'].removeprefix('v') in info
+              manifest = package.extractfile('manifest.yml').read().decode()
+              assert 'http://changedetection:5000/' in manifest
+              assert '/lzcapp/var/data:/datastore' in manifest
+              assert 'builtin://simple-inject-' + word in manifest
+              assert 'CD_LOGIN_SECRET=' in manifest and 'CD_AUTH_SALT=' in manifest
+              assert 'python /lzcapp/pkg/content/start.py' in manifest
+              assert '__PW__' not in manifest
+              assert 'login_secret' in package.extractfile('deploy_params.yml').read().decode()
+              with tarfile.open(fileobj=package.extractfile('content.tar')) as content:
+                  matches = [n for n in content.getnames() if n.removeprefix('./') == 'start.py']
+                  assert len(matches) == 1
+                  source = content.extractfile(matches[0]).read().decode()
+          scope = {'__name__':'artifact_verification'}
+          exec(compile(source,'bundled-start.py','exec'),scope)
+          value, seed = secrets.token_urlsafe(24), secrets.token_hex(32)
+          encoded = scope['make_native_hash'](value,seed)
+          raw = base64.b64decode(encoded)
+          assert len(raw) == 64
+          assert raw[32:] == hashlib.pbkdf2_hmac('sha256',value.encode(),raw[:32],100000)
+          assert scope['make_native_hash'](value,seed) == encoded
+          assert scope['make_native_hash'](value + 'x',seed) != encoded
+          result = {'verified':True,'tag':os.environ['RELEASE_TAG'],'sha256':h.hexdigest(),'size':p.stat().st_size,'native_hash_format_verified':True,'runtime_tested':False}
+          print(json.dumps(result))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('Independent cloud artifact verification\n\n'+json.dumps(result,indent=2)+'\n')

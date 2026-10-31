@@ -1,0 +1,12 @@
+params:
+  - id: login_secret
+    type: secret
+    name: Shared login secret
+    description: Single-line native login credential. This shared account can access all watches and notification settings. Update here instead of changing it inside the app.
+    default_value: "$random(len=20)"
+    optional: false
+locales:
+  zh:
+    login_secret:
+      name: 共享登录密码
+      description: 单行密码；授权成员共用全部监控与通知配置，仅授可信成员。请在这里维护，而非应用内修改。
